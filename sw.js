@@ -1,7 +1,7 @@
 // حساباتي — بيخلّي التطبيق يفتح من غير نت.
 // الصفحة نفسها: بيجيب أحدث نسخة لو فيه نت (عشان أي تحديث ترفعه يوصلك)، ولو مفيش بيفتح المحفوظة.
 // بياناتك مش هنا — بياناتك في تخزين المتصفح على جهازك، والملف ده مالوش دعوة بيها.
-const CACHE = 'hesabaty-v3';
+const CACHE = 'hesabaty-v4';
 const FILES = ['./', 'index.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'icon-180.png', 'favicon-96.png'];
 
 self.addEventListener('install', e => {
@@ -32,4 +32,13 @@ self.addEventListener('fetch', e => {
   e.respondWith(caches.match(req).then(r => r || fetch(req).then(res => {
     const copy = res.clone(); caches.open(CACHE).then(c => c.put(req, copy)); return res;
   })));
+});
+
+// لما تدوس على الإشعار: افتح التطبيق (أو رجّعه قدام لو مفتوح)
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+    for (const c of list) { if ('focus' in c) return c.focus(); }
+    return self.clients.openWindow('./');
+  }));
 });

@@ -10,6 +10,10 @@ Installed on his Android phone as a PWA. Talk to him in Egyptian Arabic.
   users on next open. **Bump `CACHE` (`hesabaty-vN`) whenever you change `sw.js`, the icons or the manifest.**
 - `manifest.webmanifest`, `icon-*.png`, `favicon-96.png` — install metadata. The manifest
   `<link>` must stay static in `<head>` (a JS-injected link broke Chrome's install prompt).
+- Notifications: always go through `devNotify()` → `serviceWorker.ready.showNotification`.
+  `new Notification()` throws silently on Android Chrome. A web app can't ring while fully
+  closed (no push server); note reminders ring in-app (alarm screen + Web Audio) and the 📅
+  button exports them to Google Calendar for closed-app alerts.
 
 ## Data — never lose it
 - User data lives only in the browser on his device: `localStorage['hesabaty_v1']`, moved

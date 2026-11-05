@@ -163,6 +163,14 @@ td.n{direction:ltr;text-align:right;font-weight:700}
 #toast div button{background:#fff;color:#1d2330;border:none;padding:2px 10px;margin-inline-start:10px;font-size:13px;font-weight:700}
 table.grid{font-size:13px}table.grid td,table.grid th{text-align:center;padding:5px 4px;white-space:nowrap}table.grid td:first-child,table.grid th:first-child{text-align:right;position:sticky;right:0;background:var(--card)}
 table.grid .cur{background:var(--pri2)}table.grid input{width:auto}
+/* ===== شاشة المنبّه ===== */
+.alarm{position:fixed;inset:0;z-index:95;display:none;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:24px 20px calc(24px + env(safe-area-inset-bottom));background:radial-gradient(ellipse at 50% 35%,#3a2a0a 0%,#120d04 75%);color:#fff;text-align:center}
+.alarm.open{display:flex}.albell{font-size:84px;animation:ring 1s ease-in-out infinite;transform-origin:50% 10%}
+@keyframes ring{0%,100%{transform:rotate(0)}10%{transform:rotate(18deg)}20%{transform:rotate(-16deg)}30%{transform:rotate(12deg)}40%{transform:rotate(-8deg)}50%{transform:rotate(0)}}
+.alarm h2{margin:6px 0 0;font-size:26px}.alarm p{margin:0;color:#e9d9b8;font-size:16px;white-space:pre-wrap;max-width:420px}.alt{color:#f5a524;font-weight:700}
+.alacts{display:flex;flex-direction:column;gap:12px;width:min(92vw,360px);margin-top:26px}.alacts button{padding:16px;font-size:18px;font-weight:800;border-radius:16px;border:none}
+.alok{background:#f5a524;color:#1d1400}.alsn{background:rgba(255,255,255,.12);color:#fff}
+@media (prefers-reduced-motion:reduce){.albell{animation:none}}
 /* ===== شاشة القفل: قفل بخانات أرقام بتلف ===== */
 .lock{position:fixed;inset:0;z-index:100;display:none;flex-direction:column;align-items:center;justify-content:center;gap:clamp(14px,3.2vh,26px);padding:calc(18px + env(safe-area-inset-top)) 16px calc(18px + env(safe-area-inset-bottom));background:radial-gradient(ellipse at 50% 28%,#1d2432 0%,#0b0e14 72%);color:#e8ebf1;user-select:none;-webkit-user-select:none;touch-action:manipulation;overflow:hidden;--amb:#f5a524;--rh:76px;--rw:64px;--rf:40px}
 .lock.open{display:flex}.lock.out{animation:lkout .45s ease forwards}
@@ -294,6 +302,8 @@ table.grid .cur{background:var(--pri2)}table.grid input{width:auto}
 <div class="fabbg" id="fabbg" data-act="fab"></div>
 <div class="fabm" id="fabm"><button data-act="fabGo" data-id="quick">⚡ كتابة سريعة</button><button class="p" data-act="fabGo" data-id="addExp">➖ مصروف</button><button data-act="fabGo" data-id="addInc">➕ دخل</button><button data-act="fabGo" data-id="addTrf">⇄ تحويل</button><button data-act="fabGo" data-id="addDebt">🤝 دين</button><button data-act="fabGo" data-id="addNote">🗒️ نوت</button></div>
 <button class="fab" id="fab" data-act="fab" aria-label="إضافة">+</button>
+<div class="alarm" id="alarm" role="alertdialog" aria-label="تذكير"><div class="albell">⏰</div><div class="alt" id="alTime"></div><h2 id="alTitle"></h2><p id="alBody"></p>
+ <div class="alacts"><button class="alok" data-act="alStop">✓ تمام</button><button class="alsn" data-act="alSnooze">😴 فكّرني بعد 10 دقايق</button></div></div>
 <div class="lock" id="lock" role="dialog" aria-label="قفل حساباتي">
  <div class="ltitle">🔒 حساباتي</div>
  <div class="pl" id="pl">
@@ -337,7 +347,7 @@ const REP={none:'مرة واحدة',daily:'كل يوم',weekly:'كل أسبوع'
 
 function defaults(){return{accounts:[],txs:[],debts:[],notes:[],boards:[],subs:[],gams:[],assets:[],goals:[],budgets:{},people:{},rates:{},meta:{updated:0},
  cats:{exp:['أكل','مواصلات','بنزين','فواتير','اشتراكات','إيجار','تليفون ونت','صحة','لبس','خروج','بيت','تعليم','هدايا','أخرى'],inc:['مرتب','عمولة','شغل إضافي','هدية','أخرى']},
- settings:{cur:'ج.م',debtDays:3,notify:true,view:'home',board:'',lastBackup:'',pin:'',lockMin:5},notified:{}}}
+ settings:{cur:'ج.م',debtDays:3,notify:true,alarmSound:true,view:'home',board:'',lastBackup:'',pin:'',lockMin:5},notified:{}}}
 function seed(){const d=defaults();
  [['كاش','cash'],['فودافون كاش','wallet'],['إنستاباي','instapay'],['البنك','bank']].forEach(([name,type])=>d.accounts.push({id:uid(),name,type,opening:0,minAlert:0,note:''}));
  const b={id:uid(),name:'خطتي',view:{x:0,y:0,k:1},nodes:[],edges:[],strokes:[]};
@@ -453,12 +463,14 @@ function lkPress(d){if(!locked||LK_BUSY||Date.now()<LK_UNTIL)return;const max=pi
 function lkDel(){if(!locked||LK_BUSY||!PIN.length)return;const i=PIN.length-1;clearTimeout(LK_MT[i]);PIN=PIN.slice(0,-1);lkRoll(i,RL.blank);if(!pinLen())lkBuild();lkMark()}
 function lkReset(){LK_MT.forEach(clearTimeout);LK_MT=[];const n=PIN.length;PIN='';for(let i=n-1;i>=0;i--)setTimeout(()=>lkRoll(i,RL.blank),(n-1-i)*70);setTimeout(()=>{if(!pinLen())lkBuild();lkMark()},n*70+60)}
 function lkLockout(){const L=$('#lock'),left=Math.ceil((LK_UNTIL-Date.now())/1000);if(left>0){L.classList.add('lockout');lkHint(`محاولات كتير غلط — استنى ${left} ثانية`);setTimeout(lkLockout,1000)}else if(L.classList.contains('lockout')){L.classList.remove('lockout');lkHint()}}
+/* لو تذكير وقع والتطبيق مقفول بالباسورد، نرنه بعد الفتح */
+function lkPendingAlarm(){const now=new Date();const n=S.notes.find(x=>!x.done&&x.remind&&new Date(x.remind)<=now&&now-new Date(x.remind)<6*3600e3);if(n)alarmStart(n)}
 function tryUnlock(code){code=code!=null?String(code):PIN;if(!locked||LK_BUSY)return;const pl=$('#pl');LK_MT.forEach(clearTimeout);for(let i=0;i<PIN.length;i++)lkRoll(i,RL.mask);
  if(hash('h$'+code)===S.settings.pin){locked=false;LK_BUSY=true;LK_FAILS=0;lastAct=Date.now();
   if(!pinLen()&&/^\d{4,8}$/.test(code)){S.settings.pinLen=code.length;save({noUndo:true})}
   pl.classList.add('ok');lkMark();lkHint('✓ اتفتح');try{navigator.vibrate&&navigator.vibrate(30)}catch(e){}
   setTimeout(()=>pl.classList.add('open'),220);setTimeout(()=>$('#lock').classList.add('out'),760);
-  setTimeout(()=>{const L=$('#lock');L.classList.remove('open','out');pl.classList.remove('ok','open');LK_BUSY=false;PIN=''},1220)}
+  setTimeout(()=>{const L=$('#lock');L.classList.remove('open','out');pl.classList.remove('ok','open');LK_BUSY=false;PIN='';lkPendingAlarm()},1220)}
  else{LK_BUSY=true;LK_FAILS++;pl.classList.add('bad');lkMark();lkHint('الرقم غلط — جرّب تاني');try{navigator.vibrate&&navigator.vibrate([60,40,60])}catch(e){}
   if(LK_FAILS>=5){LK_UNTIL=Date.now()+30000;LK_FAILS=0}
   setTimeout(()=>{pl.classList.remove('bad');LK_BUSY=false;lkReset();if(Date.now()<LK_UNTIL)lkLockout();else lkHint('الرقم غلط — جرّب تاني')},650);
@@ -588,8 +600,38 @@ function alerts(){const out=[],now=new Date(),td=today(),mk=thisMonth();
 function alertsHTML(max){const al=alerts();if(!al.length)return'<div class="empty">✅ مفيش تنبيهات — كله تمام</div>';
  return al.slice(0,max||99).map(a=>`<div class="alert ${a.lv}" data-act="go" data-id="${a.go}"><b>${a.ic}</b><span>${esc(a.text)}</span></div>`).join('')}
 function updateBadge(){const n=alerts().filter(a=>a.lv!=='info').length,b=$('#badge');b.textContent=n;b.style.display=n?'flex':'none'}
-function checkNotify(){let ch=0;for(const a of alerts()){if(!a.notify||!a.key||S.notified[a.key])continue;S.notified[a.key]=1;ch=1;toast(a.ic+' '+a.text,a.lv);
-  if(S.settings.notify&&'Notification'in window&&Notification.permission==='granted'){try{new Notification('حساباتي',{body:a.text,tag:a.key})}catch(e){}}}
+/* إشعار الجهاز: على أندرويد لازم يتبعت عن طريق الـ service worker (new Notification بيترفض هناك من غير أي رسالة) */
+async function devNotify(body,tag,alarm){if(!S.settings.notify||typeof Notification==='undefined'||Notification.permission!=='granted')return false;
+ const o={body,tag,icon:'icon-192.png',badge:'icon-192.png',lang:'ar',dir:'rtl',renotify:true,requireInteraction:!!alarm,vibrate:alarm?[400,200,400,200,800]:[200,100,200],data:{tag}};
+ try{if('serviceWorker'in navigator&&IS_HTTP){const r=await navigator.serviceWorker.ready;await r.showNotification(alarm?'⏰ حساباتي — تذكير':'حساباتي',o);return true}}catch(e){}
+ try{new Notification('حساباتي',o);return true}catch(e){return false}}
+/* صوت المنبّه: بيتعمل بالكود (من غير ملف صوت) وبيفضل يرن لحد ما تدوس إيقاف أو غفوة */
+let AC=null,ALARM=null;
+function audioUnlock(){try{AC=AC||new(window.AudioContext||window.webkitAudioContext)();if(AC.state==='suspended')AC.resume()}catch(e){}}
+['pointerdown','keydown','touchstart'].forEach(ev=>document.addEventListener(ev,audioUnlock,{passive:true}));
+function beepPattern(){if(!AC)return;const t0=AC.currentTime+.02;[[0,880],[.18,880],[.36,1175],[.9,880],[1.08,880],[1.26,1175]].forEach(([dt,f])=>{const o=AC.createOscillator(),g=AC.createGain();o.type='square';o.frequency.value=f;
+ g.gain.setValueAtTime(0,t0+dt);g.gain.linearRampToValueAtTime(.18,t0+dt+.01);g.gain.setValueAtTime(.18,t0+dt+.13);g.gain.linearRampToValueAtTime(0,t0+dt+.15);o.connect(g).connect(AC.destination);o.start(t0+dt);o.stop(t0+dt+.16)})}
+function chime(){if(!S.settings.alarmSound)return;audioUnlock();if(!AC)return;const t0=AC.currentTime+.02;[[0,988],[.14,1319]].forEach(([dt,f])=>{const o=AC.createOscillator(),g=AC.createGain();o.type='sine';o.frequency.value=f;g.gain.setValueAtTime(.0001,t0+dt);g.gain.exponentialRampToValueAtTime(.25,t0+dt+.02);g.gain.exponentialRampToValueAtTime(.0001,t0+dt+.5);o.connect(g).connect(AC.destination);o.start(t0+dt);o.stop(t0+dt+.55)})}
+function alarmStart(note){if(ALARM&&ALARM.id===note.id)return;alarmStop();ALARM={id:note.id};
+ const el=$('#alarm');$('#alTitle').textContent=note.title||'تذكير';$('#alBody').textContent=note.body||'';$('#alTime').textContent=fmtDT(note.remind);el.classList.add('open');
+ if(S.settings.alarmSound){audioUnlock();beepPattern();ALARM.snd=setInterval(beepPattern,2000)}
+ const vib=()=>{try{navigator.vibrate&&navigator.vibrate([500,250,500,250,500])}catch(e){}};vib();ALARM.vib=setInterval(vib,2500);
+ ALARM.auto=setTimeout(()=>{if(ALARM){clearInterval(ALARM.snd);clearInterval(ALARM.vib)}},120000)} /* بيسكت لوحده بعد دقيقتين، والشاشة بتفضل */
+function alarmStop(){if(!ALARM)return;clearInterval(ALARM.snd);clearInterval(ALARM.vib);clearTimeout(ALARM.auto);try{navigator.vibrate&&navigator.vibrate(0)}catch(e){}ALARM=null;$('#alarm').classList.remove('open')}
+function alarmAct(kind){const id=ALARM&&ALARM.id,n=S.notes.find(x=>x.id===id);alarmStop();if(!n)return;delete n.snoozed;
+ if(kind==='snooze'){const d=new Date(Date.now()+10*60000);n.remind=toLocalDT(d);n.snoozed=1;toast('😴 هفكرك تاني '+fmtDT(n.remind))}
+ else{if(n.repeat&&n.repeat!=='none'){n.remind=advance(n.remind,n.repeat);toast('⏰ التذكير الجاي: '+fmtDT(n.remind))}else{n.done=true;toast('✓ تمت')}}
+ save();render()}
+function nextAlarmCheck(){clearTimeout(nextAlarmCheck.t);const now=Date.now();let soon=Infinity;for(const n of S.notes){if(n.done||!n.remind)continue;const t=new Date(n.remind).getTime()-now;if(t>0&&t<soon)soon=t}
+ if(soon<30*60000)nextAlarmCheck.t=setTimeout(()=>{checkNotify();nextAlarmCheck()},soon+300)}
+/* تقويم جوجل: بيفتح تطبيق التقويم على الموبايل بالتذكير جاهز، فيرن حتى لو حساباتي مقفول */
+function gcalUrl(n){const d=new Date(n.remind),e=new Date(d.getTime()+15*60000),f=x=>x.getFullYear()+pad(x.getMonth()+1)+pad(x.getDate())+'T'+pad(x.getHours())+pad(x.getMinutes())+'00';
+ const rr={daily:'DAILY',weekly:'WEEKLY',monthly:'MONTHLY'}[n.repeat];
+ return'https://calendar.google.com/calendar/render?action=TEMPLATE&text='+encodeURIComponent('⏰ '+(n.title||'تذكير'))+'&details='+encodeURIComponent((n.body||'')+'\n— من حساباتي')+'&dates='+f(d)+'/'+f(e)+'&ctz='+encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone||'Africa/Cairo')+(rr?'&recur='+encodeURIComponent('RRULE:FREQ='+rr):'')}
+function checkNotify(){let ch=0;for(const a of alerts()){if(!a.notify||!a.key||S.notified[a.key])continue;S.notified[a.key]=1;ch=1;
+  const nid=a.key.startsWith('n:')?a.key.split(':')[1]:null,note=nid&&S.notes.find(x=>x.id===nid);
+  if(note&&!locked&&Date.now()-new Date(note.remind)<6*3600e3){alarmStart(note);devNotify(a.text+(note.body?'\n'+note.body:''),a.key,true)}
+  else{toast(a.ic+' '+a.text,a.lv);chime();devNotify(a.text,a.key,false)}}
  if(ch)save();updateBadge()}
 function advance(dt,rep){const d=new Date(dt),now=new Date();let g=0;do{if(rep==='daily')d.setDate(d.getDate()+1);else if(rep==='weekly')d.setDate(d.getDate()+7);else if(rep==='monthly')d.setMonth(d.getMonth()+1);else break}while(d<=now&&++g<1000);return toLocalDT(d)}
 
@@ -1080,15 +1122,16 @@ function rNotes(m){const now=new Date();let L=S.notes.filter(n=>NF==='all'?!n.do
  <div class="notes">${L.map(n=>{const due=n.remind&&!n.done&&new Date(n.remind)<=now;return`<div class="note ${n.done?'done':''}" style="background:${NPAL[n.c||0]}">
  <h4><span>${n.pinned?'📌 ':''}${esc(n.title||'بدون عنوان')}</span></h4>${n.body?`<p>${esc(n.body)}</p>`:''}
  ${n.remind?`<span class="rm ${due?'due':''}">⏰ ${fmtDT(n.remind)}${n.repeat&&n.repeat!=='none'?' • '+REP[n.repeat]:''}</span>`:''}
- <div class="acts"><button class="sm" data-act="doneNote" data-id="${n.id}">${n.done?'↩ رجّعها':'✓ تمت'}</button><button class="sm" data-act="pinNote" data-id="${n.id}">📌</button><button class="sm" data-act="editNote" data-id="${n.id}">✎</button><button class="sm" data-act="delNote" data-id="${n.id}">🗑</button></div></div>`}).join('')||'<div class="empty">مفيش نوت هنا</div>'}</div>`}
+ <div class="acts"><button class="sm" data-act="doneNote" data-id="${n.id}">${n.done?'↩ رجّعها':'✓ تمت'}</button>${n.remind&&!n.done?`<button class="sm" data-act="noteGcal" data-id="${n.id}" title="ضيفه لتقويم الموبايل عشان يرن حتى لو التطبيق مقفول">📅</button>`:''}<button class="sm" data-act="pinNote" data-id="${n.id}">📌</button><button class="sm" data-act="editNote" data-id="${n.id}">✎</button><button class="sm" data-act="delNote" data-id="${n.id}">🗑</button></div></div>`}).join('')||'<div class="empty">مفيش نوت هنا</div>'}</div>`}
+function noteGcal(id){const n=S.notes.find(x=>x.id===id);if(!n||!n.remind)return toast('حط معاد التذكير الأول','warn');window.open(gcalUrl(n),'_blank')}
 function noteForm(n){n=n?{...n}:{title:'',body:'',remind:'',repeat:'none',c:0,pinned:false};
  modal(n.id?'تعديل نوت':'نوت جديدة',`<label>العنوان<input name="title" value="${esc(n.title)}"></label><label>التفاصيل<textarea name="body">${esc(n.body)}</textarea></label>
  <div class="row2"><label>فكرني في<input name="remind" type="datetime-local" value="${n.remind||''}"></label><label>التكرار<select name="repeat">${Object.entries(REP).map(([k,l])=>`<option value="${k}" ${n.repeat===k?'selected':''}>${l}</option>`).join('')}</select></label></div>
  <label style="margin-bottom:0">اللون</label>${swHTML('c',NPAL,n.c||0)}<label class="chk"><input type="checkbox" name="pinned" ${n.pinned?'checked':''}> تثبيت فوق</label>`,f=>{
   if(!f.title&&!f.body)return err('اكتب عنوان أو تفاصيل');
   upsert(S.notes,{id:n.id||uid(),title:f.title,body:f.body,remind:f.remind,repeat:f.repeat,c:+f.c||0,pinned:!!f.pinned,done:n.id?!!n.done&&!f.remind:false,created:n.created||new Date().toISOString()});
-  if(f.remind&&typeof Notification!=='undefined'&&Notification.permission==='default')Notification.requestPermission().catch(()=>{});
-  save();render()})}
+  if(f.remind){audioUnlock();if(typeof Notification!=='undefined'&&Notification.permission==='default')Notification.requestPermission().catch(()=>{})}
+  save();render();nextAlarmCheck()})}
 
 /* ================= لوحة التخطيط ================= */
 let BV={tool:'select',color:0,shape:'rect',sel:null,linkFrom:null,drag:null},cv=null;
@@ -1236,8 +1279,10 @@ function rSettings(m){const perm=typeof Notification==='undefined'?'unsupported'
  :'<button class="p" data-act="setPin">🔒 حط كلمة سر</button>'}</section>
  <section class="card"><h3>⚙️ عام</h3><label>العملة<input id="sCur" value="${esc(S.settings.cur)}"></label><label>نبهني قبل معاد الدين بكام يوم<input id="sDays" type="number" min="0" value="${S.settings.debtDays}"></label>
  <label class="chk"><input type="checkbox" id="sNot" ${S.settings.notify?'checked':''}> إشعارات على الجهاز</label>
- <div class="mut" style="font-size:13px;margin-bottom:10px">حالة الإشعارات: ${perm==='granted'?'<span class="ok">مفعّلة ✓</span>':perm==='denied'?'<span class="bad">مقفولة من المتصفح</span>':perm==='unsupported'?'مش مدعومة هنا':'لسه متفعلتش'} — الإشعارات بتشتغل طول ما الصفحة مفتوحة (ولو في تاب في الخلفية).</div>
- ${perm==='default'?'<button data-act="perm">🔔 فعّل الإشعارات</button> ':''}<button class="p" data-act="saveSet">حفظ</button></section>
+ <div class="mut" style="font-size:13px;margin-bottom:10px">حالة الإشعارات: ${perm==='granted'?'<span class="ok">مفعّلة ✓</span>':perm==='denied'?'<span class="bad">مقفولة من المتصفح</span>':perm==='unsupported'?'مش مدعومة هنا':'لسه متفعلتش'} </div>
+ <label class="chk"><input type="checkbox" id="sSnd" ${S.settings.alarmSound?'checked':''}> صوت منبّه للتذكيرات</label>
+ <div class="mut" style="font-size:12.5px;margin-bottom:10px">⚠️ التذكير بيرن لو التطبيق مفتوح أو لسه مقفول من شوية. عشان يرن والتطبيق مقفول خالص، دوس 📅 على النوت وضيفها لتقويم الموبايل.</div>
+ <div class="acts" style="margin-bottom:10px">${perm==='default'?'<button data-act="perm">🔔 فعّل الإشعارات</button>':''}<button data-act="testAlarm">🔊 جرّب المنبّه</button></div><button class="p" data-act="saveSet">حفظ</button></section>
  <section class="card"><h3>🏷️ البنود</h3><label>بنود المصروفات (كل بند في سطر)<textarea id="sExp" style="min-height:150px">${esc(S.cats.exp.join('\n'))}</textarea></label><label>بنود الدخل<textarea id="sInc">${esc(S.cats.inc.join('\n'))}</textarea></label><button class="p" data-act="saveCats">حفظ البنود</button>
  <h3 style="margin-top:18px">✏️ تغيير اسم بند</h3><div class="mut" style="font-size:13px;margin-bottom:8px">بيغيّر الاسم في كل الحركات القديمة والميزانية والاشتراكات. ولو كتبت اسم بند موجود، البندين هيتدمجوا.</div>
  <div class="row2"><select id="rnOld">${allCats.map(c=>`<option>${esc(c)}</option>`).join('')}</select><input id="rnNew" placeholder="الاسم الجديد"></div><button data-act="renameCat" style="margin-top:8px">غيّر الاسم</button></section>
@@ -1331,8 +1376,10 @@ const ACT={
  addNote:()=>noteForm(),editNote:id=>noteForm(S.notes.find(n=>n.id===id)),nTab:k=>{NF=k;render()},
  delNote:id=>{if(confirm('تحذف النوت؟')){S.notes=S.notes.filter(n=>n.id!==id);save();render()}},
  pinNote:id=>{const n=S.notes.find(x=>x.id===id);n.pinned=!n.pinned;save();render()},
+ noteGcal,alStop:()=>alarmAct('done'),alSnooze:()=>alarmAct('snooze'),
+ testAlarm:()=>{audioUnlock();const n={id:'__test',title:'تجربة المنبّه',body:'لو سامع الصوت يبقى كله تمام 👌',remind:toLocalDT(new Date())};alarmStart(n);devNotify('تجربة المنبّه — لو شايف الإشعار ده يبقى شغال','test',true)},
  doneNote:id=>{const n=S.notes.find(x=>x.id===id);if(n.done)n.done=false;else if(n.remind&&n.repeat&&n.repeat!=='none'){n.remind=advance(n.remind,n.repeat);toast('⏰ التذكير الجاي: '+fmtDT(n.remind))}else n.done=true;save();render()},
- perm:()=>{if(typeof Notification==='undefined')return toast('المتصفح ده مش بيدعم الإشعارات','warn');Notification.requestPermission().then(p=>{toast(p==='granted'?'✓ الإشعارات اتفعلت':'الإشعارات متفعلتش',p==='granted'?'':'warn');render()})},
+ perm:()=>{audioUnlock();if(typeof Notification==='undefined')return toast('المتصفح ده مش بيدعم الإشعارات','warn');Notification.requestPermission().then(p=>{toast(p==='granted'?'✓ الإشعارات اتفعلت':'الإشعارات متفعلتش',p==='granted'?'':'warn');render()})},
  tool:k=>{BV.tool=k;BV.linkFrom=null;$$('.btool .tool').forEach(b=>b.classList.toggle('on',b.dataset.id===k));renderWorld()},
  pal:i=>{BV.color=+i;$$('.pal button').forEach(b=>b.classList.toggle('on',b.dataset.id===i));const b=curBoard(),s=BV.sel;if(s&&s.t==='node'){nodeById(b,s.id).c=+i;save()}else if(s&&s.t==='stroke'){const st=b.strokes.find(x=>x.id===s.id);if(st){st.c=PAL[+i][1];save()}}renderWorld()},
  zoom:f=>{const r=cv.getBoundingClientRect();zoomAt(+f,(r.width||800)/2,(r.height||500)/2);save()},fit:()=>fitBoard(),bPng,
@@ -1343,7 +1390,7 @@ const ACT={
  nDup:()=>{const b=curBoard(),n=selNode();if(!n)return;const c={...n,id:uid(),x:n.x+30,y:n.y+30};b.nodes.push(c);BV.sel={t:'node',id:c.id};save();renderWorld()},
  eEdit:()=>{if(BV.sel)edgeForm(BV.sel.id)},eRev:()=>{const e=curBoard().edges.find(x=>x.id===BV.sel.id);if(e){[e.from,e.to]=[e.to,e.from];save();renderWorld()}},
  eDash:()=>{const e=curBoard().edges.find(x=>x.id===BV.sel.id);if(e){e.dash=!e.dash;save();renderWorld()}},selDel:delSel,
- saveSet:()=>{S.settings.cur=$('#sCur').value.trim()||'ج.م';S.settings.debtDays=Math.max(0,+$('#sDays').value||0);S.settings.notify=$('#sNot').checked;save();toast('✓ اتحفظ');render()},
+ saveSet:()=>{S.settings.cur=$('#sCur').value.trim()||'ج.م';S.settings.debtDays=Math.max(0,+$('#sDays').value||0);S.settings.notify=$('#sNot').checked;S.settings.alarmSound=$('#sSnd').checked;save();toast('✓ اتحفظ');render()},
  saveCats:()=>{const p=s=>[...new Set($(s).value.split('\n').map(x=>x.trim()).filter(Boolean))];const e=p('#sExp'),i=p('#sInc');if(!e.length||!i.length)return toast('لازم بند واحد على الأقل','warn');S.cats.exp=e;S.cats.inc=i;for(const c in S.budgets)if(!e.includes(c))delete S.budgets[c];save();toast('✓ اتحفظ');render()},
  saveBud:()=>{const nb={};$$('[data-bud]').forEach(el=>{const v=+el.value;if(v>0)nb[S.cats.exp[+el.dataset.bud]]=v});S.budgets=nb;save();toast('✓ اتحفظت الميزانية');render()},
  shareBk:async()=>{const f=new File([JSON.stringify(S)],'حساباتي-نسخة-'+today()+'.json',{type:'application/json'});
@@ -1360,7 +1407,7 @@ document.addEventListener('keydown',e=>{if(locked){if(e.target.id==='pinTxt'){if
  if(e.key==='Escape'){if(open)closeM();else if(cur==='board'){BV.sel=null;BV.linkFrom=null;renderWorld()}return}
  if(open&&e.key==='Enter'&&e.target.tagName==='INPUT'){e.preventDefault();$('#mSave').click();return}
  if(!open&&cur==='board'&&(e.key==='Delete'||e.key==='Backspace')&&!/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)&&BV.sel){e.preventDefault();delSel()}});
-document.addEventListener('visibilitychange',()=>{if(document.hidden)return;if(FH&&fileState==='ok'&&!CONF)fileSync();if(cur==='home'&&!$('#modal').classList.contains('open'))render()});
+document.addEventListener('visibilitychange',()=>{if(document.hidden)return;checkNotify();nextAlarmCheck();if(FH&&fileState==='ok'&&!CONF)fileSync();if(cur==='home'&&!$('#modal').classList.contains('open'))render()});
 window.addEventListener('storage',e=>{if(e.key===KEY&&e.newValue&&e.newValue!==IDB_MARK&&MODE==='ls'){S=load();lastJ=e.newValue;render()}});
 ['pointerdown','keydown','wheel','touchstart'].forEach(ev=>document.addEventListener(ev,()=>{if(!locked)lastAct=Date.now()},{passive:true}));
 function lockUI(){$('#lockBtn').style.display=S.settings.pin?'':'none'}
@@ -1375,7 +1422,7 @@ if(BOOT_WAIT){$('#view').innerHTML='<div class="empty">⏳ جاري التحمي
   BOOT_WAIT=false;if(j){S=normalize(JSON.parse(j))}else toast('مقدرتش أقرا البيانات — استرجع نسخة احتياطية من الإعدادات','bad');startApp()})()}
 else startApp();
 pwaBoot();
-setTimeout(checkNotify,1200);
+setTimeout(()=>{checkNotify();nextAlarmCheck()},1200);
 setInterval(()=>{if(S.settings.pin&&!locked&&+S.settings.lockMin>0&&Date.now()-lastAct>S.settings.lockMin*60000)lock();
  if(autoSubs()&&!$('#modal').classList.contains('open'))render();checkNotify()},30000);
 </script>
