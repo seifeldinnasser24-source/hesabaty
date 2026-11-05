@@ -626,8 +626,8 @@ function alarmStart(note){if(ALARM&&ALARM.id===note.id)return;alarmStop();ALARM=
  ALARM.auto=setTimeout(()=>{if(ALARM){clearInterval(ALARM.snd);clearInterval(ALARM.vib)}},120000)} /* بيسكت لوحده بعد دقيقتين، والشاشة بتفضل */
 function alarmStop(){if(!ALARM)return;clearInterval(ALARM.snd);clearInterval(ALARM.vib);clearTimeout(ALARM.auto);try{navigator.vibrate&&navigator.vibrate(0)}catch(e){}ALARM=null;$('#alarm').classList.remove('open')}
 function alarmAct(kind){const id=ALARM&&ALARM.id,n=S.notes.find(x=>x.id===id);alarmStop();if(!n)return;noteAck(n,kind)}
-function noteAck(n,kind,quiet){
- if(kind==='snooze'){n.snoozeOf=n.snoozeOf||n.remind;n.remind=toLocalDT(new Date(Date.now()+10*60000));n.snoozed=1;if(!quiet)toast('😴 هفكرك تاني '+fmtDT(n.remind));return}
+function noteAck(n,kind,quiet,atMs){
+ if(kind==='snooze'){n.snoozeOf=n.snoozeOf||n.remind;n.remind=toLocalDT(new Date((atMs||Date.now())+10*60000));n.snoozed=1;if(!quiet)toast('😴 هفكرك تاني '+fmtDT(n.remind));return}
  {const base=n.snoozeOf||n.remind;delete n.snoozeOf;delete n.snoozed;if(n.repeat&&n.repeat!=='none'){n.remind=advance(base,n.repeat);if(!quiet)toast('⏰ التذكير الجاي: '+fmtDT(n.remind))}else{n.done=true;if(!quiet)toast('✓ تمت')}}
  save();render()}
 function nextAlarmCheck(){clearTimeout(nextAlarmCheck.t);const now=Date.now();let soon=Infinity;for(const n of S.notes){if(n.done||!n.remind)continue;const t=new Date(n.remind).getTime()-now;if(t>0&&t<soon)soon=t}
@@ -1311,7 +1311,7 @@ $('#impFile').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new Fi
 /* ================= تطبيق الأندرويد: منبّهات حقيقية ================= */
 /* المنبّهات بتتسجل في نظام أندرويد نفسه، فبترن في معادها حتى لو التطبيق مقفول والموبايل نايم.
    مع كل حفظ بنعيد حساب القايمة: تذكيرات النوت (قناة منبّه بصوت alarm.wav) + مواعيد الديون والاشتراكات والجمعيات (الساعة 10 الصبح). */
-const LN=PLG('LocalNotifications');let NST={perm:null,exact:null,pending:null,upd:null};
+const LN=PLG('LocalNotifications'),HS=PLG('HesabatySys');let NST={perm:null,exact:null,pending:null,upd:null,sys:null};
 function openExt(url){if(NATIVE){location.href=url;return}try{window.open(url,'_blank')}catch(e){location.href=url}}
 function nid(str){let h=2166136261;for(let i=0;i<str.length;i++){h^=str.charCodeAt(i);h=Math.imul(h,16777619)}return(h>>>1)%2000000000+1}
 function stepRep(d,rep){d=new Date(d);if(rep==='daily')d.setDate(d.getDate()+1);else if(rep==='weekly')d.setDate(d.getDate()+7);else if(rep==='monthly'){const day=d.getDate();d.setDate(1);d.setMonth(d.getMonth()+1);d.setDate(Math.min(day,new Date(d.getFullYear(),d.getMonth()+1,0).getDate()))}return d}
@@ -1330,11 +1330,19 @@ let NSYNC_T=null,NSIG='';
 function nativeSyncSoon(){if(!NATIVE||!LN)return;clearTimeout(NSYNC_T);NSYNC_T=setTimeout(nativeSync,1200)}
 async function nativeSync(force){if(!NATIVE||!LN)return;const items=nativeItems(),sig=items.map(x=>x.k+'|'+x.title+'|'+x.body).join('\n');
  if(!force&&sig===NSIG)return;
- try{const p=await LN.getPending();const ids=(p.notifications||[]).map(n=>({id:n.id}));if(ids.length)await LN.cancel({notifications:ids});
-  if(items.length)for(let i=0;i<items.length;i+=50)await LN.schedule({notifications:items.slice(i,i+50).map(x=>({id:nid(x.k),title:x.title,body:x.body,largeBody:x.body,channelId:x.ch,
+ try{let viaLN=items;
+  if(HS){const al=items.filter(x=>x.ch==='alarms');viaLN=items.filter(x=>x.ch!=='alarms');
+   await HS.setAlarms({alarms:al.map(x=>({id:nid(x.k),at:x.at.getTime(),title:x.title,body:x.body,noteId:x.ex.id}))})}
+  const p=await LN.getPending();const ids=(p.notifications||[]).map(n=>({id:n.id}));if(ids.length)await LN.cancel({notifications:ids});
+  const items2=viaLN;
+  if(items2.length)for(let i=0;i<items2.length;i+=50)await LN.schedule({notifications:items2.slice(i,i+50).map(x=>({id:nid(x.k),title:x.title,body:x.body,largeBody:x.body,channelId:x.ch,
    schedule:{at:x.at,allowWhileIdle:true},smallIcon:'ic_stat_notify',iconColor:'#1f6feb',autoCancel:true,actionTypeId:x.ch==='alarms'?'rem':undefined,extra:x.ex}))});
   NSIG=sig;NST.pending=items.length;if(cur==='settings'&&!$('#modal').classList.contains('open'))render()}
  catch(e){console.error(e);NSIG=''}}
+async function nativeAcks(){if(!HS)return;try{const r=await HS.takeAcks();const L=(r&&r.acks)||[];if(!L.length)return;let ch=0;
+ for(const a of L){const n=S.notes.find(x=>x.id===a.noteId);if(!n||n.done)continue;noteAck(n,a.action==='snooze'?'snooze':'done',true,+a.t||Date.now());S.notified['n:'+n.id+':'+n.remind]=1;ch=1}
+ if(ch){save();render();toast('✓ اتسجّل اللي عملته من الإشعار')}}catch(e){console.error(e)}}
+async function nativeSys(){if(!HS)return null;try{NST.sys=await HS.status()}catch(e){NST.sys=null}return NST.sys}
 async function nativePerms(ask){if(!LN)return;try{let p=await LN.checkPermissions();if(ask&&p.display!=='granted')p=await LN.requestPermissions();NST.perm=p.display}catch(e){NST.perm='?'}
  try{if(LN.checkExactNotificationSetting){const x=await LN.checkExactNotificationSetting();NST.exact=x.exact_alarm}}catch(e){}}
 function nativeAction(a){const ex=(a.notification&&a.notification.extra)||{};
@@ -1343,6 +1351,7 @@ function nativeAction(a){const ex=(a.notification&&a.notification.extra)||{};
   else{go('notes')}}
  else if(ex.kind==='go'&&V[ex.go])go(ex.go)}
 async function nativeTest(){if(!LN)return;await nativePerms(true);if(NST.perm!=='granted')return toast('لازم تسمح بالإشعارات الأول','warn');
+ if(HS){await HS.testAlarm({seconds:10,title:'⏰ تجربة المنبّه',body:'لو سامع الصوت ده والتطبيق مقفول، يبقى المنبّهات شغالة 👌'});toast('⏱️ اقفل التطبيق دلوقتي — المنبّه هيرن بعد 10 ثواني');return}
  await LN.schedule({notifications:[{id:nid('test:'+Date.now()),title:'⏰ تجربة المنبّه',body:'لو سمعت الصوت ده والتطبيق مقفول، يبقى المنبّهات شغالة 👌',channelId:'alarms',schedule:{at:new Date(Date.now()+10000),allowWhileIdle:true},smallIcon:'ic_stat_notify',iconColor:'#1f6feb'}]});
  toast('⏱️ اقفل التطبيق دلوقتي — المنبّه هيرن بعد 10 ثواني')}
 async function nativeUpdateCheck(force){if(!NATIVE||!APP_BUILD)return;const last=+localStorage.getItem('hesabaty_updchk')||0;if(!force&&Date.now()-last<6*3600e3)return;
@@ -1359,19 +1368,28 @@ async function nativeInit(){if(!NATIVE)return;document.documentElement.classList
    await LN.createChannel({id:'dues',name:'مواعيد الفلوس',description:'ديون واشتراكات وجمعيات',importance:4,visibility:1,vibration:true});
    await LN.registerActionTypes({types:[{id:'rem',actions:[{id:'done',title:'✓ تمام'},{id:'snooze',title:'😴 بعد 10 دقايق'}]}]})}catch(e){console.error(e)}
   try{LN.addListener('localNotificationActionPerformed',a=>{const f=()=>nativeAction(a);BOOT_WAIT?setTimeout(f,800):f()})}catch(e){}
-  await nativePerms(true);nativeSync(true)}
+  await nativePerms(true);await nativeAcks();nativeSync(true);setTimeout(bgGuide,1500)}
  const AP=PLG('App');if(AP){try{
   AP.addListener('backButton',()=>{if(locked){AP.minimizeApp&&AP.minimizeApp();return}if($('#alarm').classList.contains('open'))return;
    if($('#modal').classList.contains('open')){closeM();return}if($('#fab').classList.contains('open')){ACT.fab();return}if(cur!=='home'){go('home');return}AP.minimizeApp?AP.minimizeApp():AP.exitApp()});
-  AP.addListener('appStateChange',st=>{if(st.isActive){autoSubs();checkNotify();nextAlarmCheck();nativePerms(false);nativeSyncSoon();nativeUpdateCheck()}})}catch(e){}}
+  AP.addListener('appStateChange',st=>{if(st.isActive){nativeAcks().then(()=>{nativeSys().then(()=>{if(cur==='settings'&&!$('#modal').classList.contains('open'))render()})});autoSubs();checkNotify();nextAlarmCheck();nativePerms(false);nativeSyncSoon();nativeUpdateCheck()}})}catch(e){}}
  setTimeout(()=>nativeUpdateCheck(),3000)}
-function nativeCard(){const ok=NST.perm==='granted',ex=NST.exact;
+async function bgGuide(force){if(!HS)return;const st=await nativeSys();if(!st)return;const bad=!st.battery||!st.exact||!st.notifications;
+ if(!force&&(!bad||S.settings.bgGuided))return;S.settings.bgGuided=1;save({noUndo:true});
+ modal('⏰ خلّي المنبّهات ترن والتطبيق مقفول',`<div style="font-size:14.5px;line-height:1.8;margin-bottom:12px">موبايلك (${esc(st.manufacturer||'')}) ممكن يوقّف التطبيقات في الخلفية عشان البطارية، فالمنبّه مايرنّش. اعمل الخطوات دي مرة واحدة:</div>
+ <div class="list">${bgSteps(st)}</div><div class="mut" style="font-size:12.5px;margin-top:10px">بعد ما تخلص، ارجع هنا ودوس "🔔 جرّب" واقفل التطبيق.</div>`,null,{focus:false})}
+function bgSteps(st){const row=(ok,t,act,btn)=>`<div class="row"><div class="dot ${ok?'ok':'warn'}">${ok?'✓':'!'}</div><div class="g"><b>${t}</b></div>${ok?'':`<button class="sm p" data-act="${act}">${btn}</button>`}</div>`;
+ return row(st.notifications,'الإشعارات مسموحة','nPerm','اسمح')+row(st.battery,'يشتغل في الخلفية من غير قيود البطارية','nBatt','اسمح')+row(st.exact,'المنبّهات في معادها بالظبط','nExact','افتح')
+  +(st.sdk>=34?row(st.fullScreen,'يظهر فوق شاشة القفل','nFull','افتح'):'')
+  +`<div class="row"><div class="dot pri">⚙️</div><div class="g"><b>التشغيل التلقائي</b><small>في Realme / Oppo / Xiaomi: فعّل حساباتي في القايمة اللي هتفتح</small></div><button class="sm" data-act="nAuto">افتح</button></div>`}
+function nativeCard(){if(!NST.sys&&HS&&!nativeCard.p){nativeCard.p=1;nativeSys().then(()=>{nativeCard.p=0;if(cur==='settings')render()})}const ok=NST.perm==='granted',ex=NST.exact;
  return`<section class="card"><h3>⏰ منبّهات الموبايل</h3>
  <div style="font-size:14px;line-height:1.9">الإشعارات: ${ok?'<span class="ok">مسموحة ✓</span>':`<span class="bad">مش مسموحة</span> <button class="sm p" data-act="nPerm">اسمح</button>`}<br>
  المنبّهات في معادها بالظبط: ${ex==='denied'?'<span class="bad">مقفولة</span> <button class="sm p" data-act="nExact">افتحها</button>':'<span class="ok">✓</span>'}<br>
- منبّهات متجدولة: <b>${NST.pending==null?'…':NST.pending}</b></div>
+ منبّهات متجدولة: <b>${NST.sys?NST.sys.alarms:'…'}</b> تذكير + <b>${NST.pending==null?'…':NST.pending}</b> معاد فلوس</div>
+ ${NST.sys?`<div class="list" style="margin:8px 0">${bgSteps(NST.sys)}</div>`:''}
  <label class="chk" style="margin-top:6px"><input type="checkbox" id="sSnd" ${S.settings.alarmSound?'checked':''}> صوت منبّه جوه التطبيق لما يكون مفتوح</label>
- <div class="mut" style="font-size:12.5px;margin:4px 0 10px">💡 لو الموبايل Realme / Oppo / Xiaomi / Samsung: ادخل إعدادات الموبايل ← التطبيقات ← حساباتي ← البطارية، واختار <b>"بدون قيود"</b> وفعّل <b>"التشغيل التلقائي"</b>، عشان النظام مايوقفش المنبّهات.</div>
+ <div class="mut" style="font-size:12.5px;margin:4px 0 10px">💡 لو لسه مش بيرن: إعدادات الموبايل ← التطبيقات ← حساباتي ← البطارية ← <b>"بدون قيود"</b>. <button class="sm" data-act="nApp">افتح إعدادات التطبيق</button></div>
  <div class="acts"><button class="p" data-act="nTest">🔔 جرّب: منبّه بعد 10 ثواني</button><button data-act="nResync">🔄 أعد الجدولة</button><button data-act="nUpd">⬆️ دوّر على تحديث</button></div>
  <div class="mut" style="font-size:12px;margin-top:8px">نسخة التطبيق: ${APP_BUILD||'تجريبية'}</div></section>`}
 
@@ -1413,8 +1431,8 @@ const ACT={
  dTab:k=>{DF.tab=k;render()},
  more:moreMenu,confKeep,
  getApk:()=>openExt(APK_URL),updHide:()=>{$('#updBar').style.display='none'},
- nPerm:async()=>{await nativePerms(true);nativeSync(true);render()},nExact:async()=>{try{await LN.changeExactNotificationSetting()}catch(e){}setTimeout(async()=>{await nativePerms(false);render()},1500)},
- nTest:()=>nativeTest(),nResync:async()=>{await nativeSync(true);toast('✓ اتجدولت '+(NST.pending||0)+' منبّه')},nUpd:()=>nativeUpdateCheck(true),qSave:()=>quickSave($('#qIn').value),quick:quickModal,saveRates:()=>{$$('[data-rate]').forEach(i=>{const v=+i.value;if(v>0)S.rates[i.dataset.rate]=v});save();render();toast('✓ اتحفظت الأسعار')},
+ nPerm:async()=>{await nativePerms(true);NST.sys=null;nativeSync(true);render()},nExact:async()=>{try{await LN.changeExactNotificationSetting()}catch(e){}setTimeout(async()=>{await nativePerms(false);NST.sys=null;render()},1500)},
+ nTest:()=>nativeTest(),nBatt:async()=>{if(HS)await HS.requestBattery();setTimeout(()=>nativeSys().then(()=>render()),1500)},nAuto:()=>HS&&HS.openAutoStart(),nFull:()=>HS&&HS.openFullScreen(),nApp:()=>HS&&HS.openAppSettings(),nResync:async()=>{await nativeSync(true);toast('✓ اتجدولت '+(NST.pending||0)+' منبّه')},nUpd:()=>nativeUpdateCheck(true),qSave:()=>quickSave($('#qIn').value),quick:quickModal,saveRates:()=>{$$('[data-rate]').forEach(i=>{const v=+i.value;if(v>0)S.rates[i.dataset.rate]=v});save();render();toast('✓ اتحفظت الأسعار')},
  waDebt:id=>{const d=S.debts.find(x=>x.id===id);if(d)waOpen(d.person,debtMsg(d))},stmt:p=>stmtModal(p),
  stmtWa:p=>{const ph=$('#stPh');if(ph&&ph.value.trim()){setPhone(p,ph.value);save()}waOpen(p,stmtText(p))},
  stmtCopy:p=>{const t=stmtText(p);(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>toast('📋 اتنسخ')).catch(()=>{const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();try{document.execCommand('copy');toast('📋 اتنسخ')}catch(e){}ta.remove()})},

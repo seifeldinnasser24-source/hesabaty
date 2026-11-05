@@ -21,6 +21,12 @@ Installed on his Android phone as a PWA. Talk to him in Egyptian Arabic.
   save: notes on channel `alarms` with `res/raw/alarm.wav`, money due dates at 10:00 on `dues`),
   notification actions done/snooze, back button (@capacitor/app), file export through
   Filesystem+Share (`dl()`), external links via `openExt()`, in-app update check.
+- Note reminders use our own native plugin `HesabatySys` (`android-app/java/*.java`, copied in by
+  `customize.sh`): `AlarmManager.setAlarmClock` (survives Doze/OEM battery savers better than plain
+  exact alarms), insistent alarm-sound notification with full-screen intent, Done/Snooze buttons
+  that work with the app closed (stored as "acks", applied by `nativeAcks()` on next open), boot
+  reschedule, plus battery-optimisation / auto-start / full-screen shortcuts (`bgGuide()`).
+  Money due dates still go through @capacitor/local-notifications.
 - `.github/workflows/apk.yml` builds on every push touching `index.html`/`android-app/**`:
   `npx cap add android` → `customize.sh <run_number>` (version, signing, permissions, icons,
   sound, splash) → `gradlew assembleRelease` → GitHub release `v<run>` with `hesabaty.apk`.
