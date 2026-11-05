@@ -1,0 +1,9 @@
+{
+  "appId": "io.github.seifeldinnasser24.hesabaty",
+  "appName": "حساباتي",
+  "webDir": "www",
+  "android": { "allowMixedContent": false, "backgroundColor": "#0b0e14" },
+  "plugins": {
+    "LocalNotifications": { "smallIcon": "ic_stat_notify", "iconColor": "#1f6feb" }
+  }
+}

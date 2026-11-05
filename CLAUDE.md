@@ -15,6 +15,21 @@ Installed on his Android phone as a PWA. Talk to him in Egyptian Arabic.
   closed (no push server); note reminders ring in-app (alarm screen + Web Audio) and the 📅
   button exports them to Google Calendar for closed-app alerts.
 
+## Android APK (Capacitor) — `android-app/`
+- Same `index.html` runs inside the APK. `NATIVE` (window.Capacitor) switches on: real Android
+  alarms via @capacitor/local-notifications (`nativeSync()` rebuilds the schedule after every
+  save: notes on channel `alarms` with `res/raw/alarm.wav`, money due dates at 10:00 on `dues`),
+  notification actions done/snooze, back button (@capacitor/app), file export through
+  Filesystem+Share (`dl()`), external links via `openExt()`, in-app update check.
+- `.github/workflows/apk.yml` builds on every push touching `index.html`/`android-app/**`:
+  `npx cap add android` → `customize.sh <run_number>` (version, signing, permissions, icons,
+  sound, splash) → `gradlew assembleRelease` → GitHub release `v<run>` with `hesabaty.apk`.
+  `APP_BUILD` is stamped at build time; the app offers updates when a newer release exists.
+- Signing key `android-app/keystore/hesabaty.jks` must never change, or updates won't install
+  over the old app (and he'd lose data by uninstalling). The Android SDK can't be downloaded
+  in Claude's sandbox; check builds via `gh api repos/<repo>/actions/runs`.
+- Web/PWA data and APK data are separate storages; moving between them = backup + restore.
+
 ## Data — never lose it
 - User data lives only in the browser on his device: `localStorage['hesabaty_v1']`, moved
   automatically to IndexedDB (`hesabaty_fs` db, key `data`) when it grows (marker `__idb__`).

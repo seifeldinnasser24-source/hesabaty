@@ -154,6 +154,7 @@ td.n{direction:ltr;text-align:right;font-weight:700}
 .row.fut{opacity:.72}
 @media (max-width:900px){.nav .sec{display:none}.nav .nl{display:none}.nav .ns{display:block}#moreBtn{display:flex}.nav{overflow-x:visible}}
 .qbar{display:flex;gap:8px;margin-bottom:6px}.qbar input{flex:1;font-size:16px}.qprev{font-size:13.5px;margin:0 4px 14px;min-height:20px;line-height:1.6}
+.updbar{display:flex;align-items:center;gap:8px;padding:8px 14px;background:var(--pri2);color:var(--pri);font-weight:600;font-size:14px;border-bottom:1px solid var(--bd)}.updbar .ic{margin-inline-start:auto}
 .mbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px}.mbar input{width:auto}.mbar button:disabled{opacity:.4;cursor:default}
 .flow{margin-bottom:16px}.frow{display:flex;justify-content:space-between;gap:10px;padding:8px 2px;border-bottom:1px dashed var(--bd);font-size:15px}
 .frow.tot{border-bottom:none;border-top:2px solid var(--bd);margin-top:4px;padding-top:12px;font-size:17px;font-weight:700}.frow .mut{font-size:12.5px;font-weight:400}
@@ -294,6 +295,7 @@ table.grid .cur{background:var(--pri2)}table.grid input{width:auto}
    <button class="ic hb" id="lockBtn" data-act="lockNow" title="اقفل" style="display:none">🔒</button>
    <button class="bell" data-act="showAlerts" title="التنبيهات">🔔<b id="badge"></b></button>
   </header>
+  <div id="updBar" class="updbar" style="display:none"></div>
   <main id="view"></main>
  </div>
 </div>
@@ -320,6 +322,11 @@ table.grid .cur{background:var(--pri2)}table.grid input{width:auto}
 'use strict';
 /* ================= أساسيات ================= */
 const KEY='hesabaty_v1';
+/* تطبيق الأندرويد (Capacitor): نفس الملف ده بيشتغل جوه الـ APK. APP_BUILD بيتحط وقت البناء على GitHub */
+const APP_BUILD=0;
+const CAP=window.Capacitor,NATIVE=!!(CAP&&CAP.isNativePlatform&&CAP.isNativePlatform());
+const PLG=n=>{if(!NATIVE)return null;try{return(CAP.Plugins&&CAP.Plugins[n])||(CAP.registerPlugin&&CAP.registerPlugin(n))||null}catch(e){return null}};
+const APK_URL='https://github.com/seifeldinnasser24-source/hesabaty/releases/latest/download/hesabaty.apk';
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -362,7 +369,7 @@ function load(){try{const raw=localStorage.getItem(KEY);if(raw===IDB_MARK){MODE=
 let S=load();
 /* حفظ + تراجع + نقاط استرجاع يومية + حفظ في ملف */
 const SNAPK=KEY+'_snaps';let lastJ=null,UNDO=[],SNAPS=null;
-function save(opt){if(BOOT_WAIT)return;S.meta.updated=Date.now();const j=JSON.stringify(S),prev=lastJ;
+function save(opt){if(BOOT_WAIT)return;if(NATIVE)nativeSyncSoon();S.meta.updated=Date.now();const j=JSON.stringify(S),prev=lastJ;
  if(lastJ&&!(opt&&opt.noUndo)&&lastJ!==j){UNDO.push(lastJ);if(UNDO.length>40)UNDO.shift()}lastJ=j;
  snapDaily(prev);writeMain(j);
  fileQueue(j);undoBtn()}
@@ -601,7 +608,7 @@ function alertsHTML(max){const al=alerts();if(!al.length)return'<div class="empt
  return al.slice(0,max||99).map(a=>`<div class="alert ${a.lv}" data-act="go" data-id="${a.go}"><b>${a.ic}</b><span>${esc(a.text)}</span></div>`).join('')}
 function updateBadge(){const n=alerts().filter(a=>a.lv!=='info').length,b=$('#badge');b.textContent=n;b.style.display=n?'flex':'none'}
 /* إشعار الجهاز: على أندرويد لازم يتبعت عن طريق الـ service worker (new Notification بيترفض هناك من غير أي رسالة) */
-async function devNotify(body,tag,alarm){if(!S.settings.notify||typeof Notification==='undefined'||Notification.permission!=='granted')return false;
+async function devNotify(body,tag,alarm){if(NATIVE||!S.settings.notify||typeof Notification==='undefined'||Notification.permission!=='granted')return false;
  const o={body,tag,icon:'icon-192.png',badge:'icon-192.png',lang:'ar',dir:'rtl',renotify:true,requireInteraction:!!alarm,vibrate:alarm?[400,200,400,200,800]:[200,100,200],data:{tag}};
  try{if('serviceWorker'in navigator&&IS_HTTP){const r=await navigator.serviceWorker.ready;await r.showNotification(alarm?'⏰ حساباتي — تذكير':'حساباتي',o);return true}}catch(e){}
  try{new Notification('حساباتي',o);return true}catch(e){return false}}
@@ -614,13 +621,14 @@ function beepPattern(){if(!AC)return;const t0=AC.currentTime+.02;[[0,880],[.18,8
 function chime(){if(!S.settings.alarmSound)return;audioUnlock();if(!AC)return;const t0=AC.currentTime+.02;[[0,988],[.14,1319]].forEach(([dt,f])=>{const o=AC.createOscillator(),g=AC.createGain();o.type='sine';o.frequency.value=f;g.gain.setValueAtTime(.0001,t0+dt);g.gain.exponentialRampToValueAtTime(.25,t0+dt+.02);g.gain.exponentialRampToValueAtTime(.0001,t0+dt+.5);o.connect(g).connect(AC.destination);o.start(t0+dt);o.stop(t0+dt+.55)})}
 function alarmStart(note){if(ALARM&&ALARM.id===note.id)return;alarmStop();ALARM={id:note.id};
  const el=$('#alarm');$('#alTitle').textContent=note.title||'تذكير';$('#alBody').textContent=note.body||'';$('#alTime').textContent=fmtDT(note.remind);el.classList.add('open');
- if(S.settings.alarmSound){audioUnlock();beepPattern();ALARM.snd=setInterval(beepPattern,2000)}
+ if(S.settings.alarmSound&&!(NATIVE&&note.id!=='__test')){audioUnlock();beepPattern();ALARM.snd=setInterval(beepPattern,2000)}
  const vib=()=>{try{navigator.vibrate&&navigator.vibrate([500,250,500,250,500])}catch(e){}};vib();ALARM.vib=setInterval(vib,2500);
  ALARM.auto=setTimeout(()=>{if(ALARM){clearInterval(ALARM.snd);clearInterval(ALARM.vib)}},120000)} /* بيسكت لوحده بعد دقيقتين، والشاشة بتفضل */
 function alarmStop(){if(!ALARM)return;clearInterval(ALARM.snd);clearInterval(ALARM.vib);clearTimeout(ALARM.auto);try{navigator.vibrate&&navigator.vibrate(0)}catch(e){}ALARM=null;$('#alarm').classList.remove('open')}
-function alarmAct(kind){const id=ALARM&&ALARM.id,n=S.notes.find(x=>x.id===id);alarmStop();if(!n)return;delete n.snoozed;
- if(kind==='snooze'){const d=new Date(Date.now()+10*60000);n.remind=toLocalDT(d);n.snoozed=1;toast('😴 هفكرك تاني '+fmtDT(n.remind))}
- else{if(n.repeat&&n.repeat!=='none'){n.remind=advance(n.remind,n.repeat);toast('⏰ التذكير الجاي: '+fmtDT(n.remind))}else{n.done=true;toast('✓ تمت')}}
+function alarmAct(kind){const id=ALARM&&ALARM.id,n=S.notes.find(x=>x.id===id);alarmStop();if(!n)return;noteAck(n,kind)}
+function noteAck(n,kind,quiet){
+ if(kind==='snooze'){n.snoozeOf=n.snoozeOf||n.remind;n.remind=toLocalDT(new Date(Date.now()+10*60000));n.snoozed=1;if(!quiet)toast('😴 هفكرك تاني '+fmtDT(n.remind));return}
+ {const base=n.snoozeOf||n.remind;delete n.snoozeOf;delete n.snoozed;if(n.repeat&&n.repeat!=='none'){n.remind=advance(base,n.repeat);if(!quiet)toast('⏰ التذكير الجاي: '+fmtDT(n.remind))}else{n.done=true;if(!quiet)toast('✓ تمت')}}
  save();render()}
 function nextAlarmCheck(){clearTimeout(nextAlarmCheck.t);const now=Date.now();let soon=Infinity;for(const n of S.notes){if(n.done||!n.remind)continue;const t=new Date(n.remind).getTime()-now;if(t>0&&t<soon)soon=t}
  if(soon<30*60000)nextAlarmCheck.t=setTimeout(()=>{checkNotify();nextAlarmCheck()},soon+300)}
@@ -892,7 +900,7 @@ function digitsEn(s){return String(s||'').replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦�
 function waNum(p){let d=digitsEn(p).replace(/\D/g,'');if(!d)return'';if(d.startsWith('00'))d=d.slice(2);if(/^01\d{9}$/.test(d))d='2'+d;else if(/^1\d{9}$/.test(d))d='20'+d;return d}
 const phoneOf=name=>((S.people||{})[name]||{}).phone||'';
 function setPhone(name,phone){if(!name)return;S.people=S.people||{};if(phone)S.people[name]={...(S.people[name]||{}),phone:digitsEn(phone).trim()};}
-function waOpen(name,text){const n=waNum(phoneOf(name)),url=(n?'https://wa.me/'+n:'https://wa.me/')+'?text='+encodeURIComponent(text);try{window.open(url,'_blank')}catch(e){location.href=url}
+function waOpen(name,text){const n=waNum(phoneOf(name)),url=(n?'https://wa.me/'+n:'https://wa.me/')+'?text='+encodeURIComponent(text);openExt(url)
  if(!n)toast('مفيش رقم محفوظ لـ '+name+' — اختار الشات من واتساب، أو ضيف رقمه من تعديل الدين','warn')}
 function debtMsg(d){const rem=debtRem(d),due=debtDue(d),ia=+d.instN>0,k=instDone(d)+1,amt=ia?Math.min(rem,instAmt(d)*k-debtPaid(d)):rem;
  return`إزيك يا ${d.person} 👋\nبفكرك ${ia?`بالقسط رقم ${k} من ${d.instN} (${fmt(amt)})`:`بمبلغ ${fmt(amt)}`}${due?(daysTo(due)<0?` اللي كان معاده ${fmtD(due)}`:` اللي معاده ${fmtD(due)}`):''}.${ia&&rem>amt?`\nالباقي كله: ${fmt(rem)}`:''}\nشكراً 🙏`}
@@ -1123,7 +1131,7 @@ function rNotes(m){const now=new Date();let L=S.notes.filter(n=>NF==='all'?!n.do
  <h4><span>${n.pinned?'📌 ':''}${esc(n.title||'بدون عنوان')}</span></h4>${n.body?`<p>${esc(n.body)}</p>`:''}
  ${n.remind?`<span class="rm ${due?'due':''}">⏰ ${fmtDT(n.remind)}${n.repeat&&n.repeat!=='none'?' • '+REP[n.repeat]:''}</span>`:''}
  <div class="acts"><button class="sm" data-act="doneNote" data-id="${n.id}">${n.done?'↩ رجّعها':'✓ تمت'}</button>${n.remind&&!n.done?`<button class="sm" data-act="noteGcal" data-id="${n.id}" title="ضيفه لتقويم الموبايل عشان يرن حتى لو التطبيق مقفول">📅</button>`:''}<button class="sm" data-act="pinNote" data-id="${n.id}">📌</button><button class="sm" data-act="editNote" data-id="${n.id}">✎</button><button class="sm" data-act="delNote" data-id="${n.id}">🗑</button></div></div>`}).join('')||'<div class="empty">مفيش نوت هنا</div>'}</div>`}
-function noteGcal(id){const n=S.notes.find(x=>x.id===id);if(!n||!n.remind)return toast('حط معاد التذكير الأول','warn');window.open(gcalUrl(n),'_blank')}
+function noteGcal(id){const n=S.notes.find(x=>x.id===id);if(!n||!n.remind)return toast('حط معاد التذكير الأول','warn');openExt(gcalUrl(n))}
 function noteForm(n){n=n?{...n}:{title:'',body:'',remind:'',repeat:'none',c:0,pinned:false};
  modal(n.id?'تعديل نوت':'نوت جديدة',`<label>العنوان<input name="title" value="${esc(n.title)}"></label><label>التفاصيل<textarea name="body">${esc(n.body)}</textarea></label>
  <div class="row2"><label>فكرني في<input name="remind" type="datetime-local" value="${n.remind||''}"></label><label>التكرار<select name="repeat">${Object.entries(REP).map(([k,l])=>`<option value="${k}" ${n.repeat===k?'selected':''}>${l}</option>`).join('')}</select></label></div>
@@ -1278,11 +1286,12 @@ function rSettings(m){const perm=typeof Notification==='undefined'?'unsupported'
  ${S.settings.pin?`<label>اقفل بعد كام دقيقة من غير استخدام (0 = بس عند الفتح)<input id="sLock" type="number" min="0" value="${S.settings.lockMin}"></label><div class="acts"><button class="p" data-act="saveLock">حفظ</button><button data-act="setPin">تغيير كلمة السر</button><button class="d" data-act="delPin">شيل القفل</button></div>`
  :'<button class="p" data-act="setPin">🔒 حط كلمة سر</button>'}</section>
  <section class="card"><h3>⚙️ عام</h3><label>العملة<input id="sCur" value="${esc(S.settings.cur)}"></label><label>نبهني قبل معاد الدين بكام يوم<input id="sDays" type="number" min="0" value="${S.settings.debtDays}"></label>
- <label class="chk"><input type="checkbox" id="sNot" ${S.settings.notify?'checked':''}> إشعارات على الجهاز</label>
+ ${NATIVE?'':`<label class="chk"><input type="checkbox" id="sNot" ${S.settings.notify?'checked':''}> إشعارات على الجهاز</label>
  <div class="mut" style="font-size:13px;margin-bottom:10px">حالة الإشعارات: ${perm==='granted'?'<span class="ok">مفعّلة ✓</span>':perm==='denied'?'<span class="bad">مقفولة من المتصفح</span>':perm==='unsupported'?'مش مدعومة هنا':'لسه متفعلتش'} </div>
  <label class="chk"><input type="checkbox" id="sSnd" ${S.settings.alarmSound?'checked':''}> صوت منبّه للتذكيرات</label>
  <div class="mut" style="font-size:12.5px;margin-bottom:10px">⚠️ التذكير بيرن لو التطبيق مفتوح أو لسه مقفول من شوية. عشان يرن والتطبيق مقفول خالص، دوس 📅 على النوت وضيفها لتقويم الموبايل.</div>
- <div class="acts" style="margin-bottom:10px">${perm==='default'?'<button data-act="perm">🔔 فعّل الإشعارات</button>':''}<button data-act="testAlarm">🔊 جرّب المنبّه</button></div><button class="p" data-act="saveSet">حفظ</button></section>
+ <div class="acts" style="margin-bottom:10px">${perm==='default'?'<button data-act="perm">🔔 فعّل الإشعارات</button>':''}<button data-act="testAlarm">🔊 جرّب المنبّه</button></div>`}<button class="p" data-act="saveSet">حفظ</button></section>
+ ${NATIVE?nativeCard():`<section class="card"><h3>📲 تطبيق أندرويد بمنبّهات حقيقية</h3><div class="mut" style="font-size:13.5px;margin-bottom:10px">نسخة الأندرويد بترن في معادها حتى لو التطبيق مقفول. قبل ما تنقل: نزّل نسخة احتياطية من هنا واسترجعها في التطبيق الجديد.</div><div class="acts"><button class="p" data-act="getApk">⬇ نزّل التطبيق (APK)</button><button data-act="exp">💾 نسخة احتياطية للنقل</button></div></section>`}
  <section class="card"><h3>🏷️ البنود</h3><label>بنود المصروفات (كل بند في سطر)<textarea id="sExp" style="min-height:150px">${esc(S.cats.exp.join('\n'))}</textarea></label><label>بنود الدخل<textarea id="sInc">${esc(S.cats.inc.join('\n'))}</textarea></label><button class="p" data-act="saveCats">حفظ البنود</button>
  <h3 style="margin-top:18px">✏️ تغيير اسم بند</h3><div class="mut" style="font-size:13px;margin-bottom:8px">بيغيّر الاسم في كل الحركات القديمة والميزانية والاشتراكات. ولو كتبت اسم بند موجود، البندين هيتدمجوا.</div>
  <div class="row2"><select id="rnOld">${allCats.map(c=>`<option>${esc(c)}</option>`).join('')}</select><input id="rnNew" placeholder="الاسم الجديد"></div><button data-act="renameCat" style="margin-top:8px">غيّر الاسم</button></section>
@@ -1291,7 +1300,7 @@ function rSettings(m){const perm=typeof Notification==='undefined'?'unsupported'
  <section class="card"><h3>💾 النسخ الاحتياطي</h3><div class="mut" style="font-size:13px;margin-bottom:12px">ملف تقدر تحتفظ بيه أو تنقله لجهاز تاني (مفيد خصوصاً على الموبايل).<br>آخر نسخة: <b>${S.settings.lastBackup?fmtD(S.settings.lastBackup):'لسه'}</b></div>
  <div class="acts">${canShareFiles()?'<button class="p" data-act="shareBk">📤 شارك النسخة (واتساب / Drive)</button><button data-act="exp">⬇ تنزيل</button>':'<button class="p" data-act="exp">⬇ تنزيل نسخة احتياطية</button>'}<button data-act="imp">⬆ استرجاع من نسخة</button><button data-act="csv">⬇ الحركات Excel (CSV)</button></div>
  <div style="margin-top:22px;border-top:1px solid var(--bd);padding-top:14px"><button class="d" data-act="wipe">⚠️ مسح كل البيانات</button></div></section></div>`}
-function dl(blob,name){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},500)}
+function dl(blob,name){if(NATIVE){nativeSave(blob,name);return}const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},500)}
 function exportCSV(){const L=cur==='txs'?filteredTxs():[...S.txs].sort((a,b)=>a.date.localeCompare(b.date));
  const tn={exp:'مصروف',inc:'دخل',trf:'تحويل',debt:'دين',adj:'تسوية',gam:'جمعية',asset:'مدخرات',goal:'هدف تحويش'},q=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
  const rows=[['التاريخ','النوع','البند','الخزنة','إلى خزنة','المبلغ','العملة','بالجنيه','رسوم','ملاحظة']].concat(L.map(t=>{const sg=t.type==='exp'||t.sign<0?-1:1;return[t.date,tn[t.type],t.cat||'',accName(t.acc),t.to?accName(t.to):'',sg*t.amount,accCur(t.acc),Math.round(sg*txE(t)*100)/100,t.fee||'',t.note||'']}));
@@ -1299,14 +1308,81 @@ function exportCSV(){const L=cur==='txs'?filteredTxs():[...S.txs].sort((a,b)=>a.
 $('#impFile').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const o=JSON.parse(r.result);if(!o||!Array.isArray(o.accounts)||!Array.isArray(o.txs))throw 0;
  if(!confirm('ده هيستبدل كل البيانات الحالية بالنسخة دي. متأكد؟'))return;const pin=S.settings.pin,pl=S.settings.pinLen;S=normalize(o);if(!S.settings.pin){S.settings.pin=pin;S.settings.pinLen=pl}save();lockUI();toast('✓ اتسترجعت — تقدر تتراجع بـ ↶');render()}catch(_){toast('الملف ده مش نسخة احتياطية صحيحة','bad')}};r.readAsText(f);e.target.value=''};
 
+/* ================= تطبيق الأندرويد: منبّهات حقيقية ================= */
+/* المنبّهات بتتسجل في نظام أندرويد نفسه، فبترن في معادها حتى لو التطبيق مقفول والموبايل نايم.
+   مع كل حفظ بنعيد حساب القايمة: تذكيرات النوت (قناة منبّه بصوت alarm.wav) + مواعيد الديون والاشتراكات والجمعيات (الساعة 10 الصبح). */
+const LN=PLG('LocalNotifications');let NST={perm:null,exact:null,pending:null,upd:null};
+function openExt(url){if(NATIVE){location.href=url;return}try{window.open(url,'_blank')}catch(e){location.href=url}}
+function nid(str){let h=2166136261;for(let i=0;i<str.length;i++){h^=str.charCodeAt(i);h=Math.imul(h,16777619)}return(h>>>1)%2000000000+1}
+function stepRep(d,rep){d=new Date(d);if(rep==='daily')d.setDate(d.getDate()+1);else if(rep==='weekly')d.setDate(d.getDate()+7);else if(rep==='monthly'){const day=d.getDate();d.setDate(1);d.setMonth(d.getMonth()+1);d.setDate(Math.min(day,new Date(d.getFullYear(),d.getMonth()+1,0).getDate()))}return d}
+function nativeItems(){const out=[],now=Date.now()+5000,at10=ds=>new Date(ds+'T10:00');
+ for(const n of S.notes){if(n.done||!n.remind)continue;let t=new Date(n.remind);if(isNaN(t))continue;const rep=n.repeat&&n.repeat!=='none',cnt=rep?({daily:30,weekly:12,monthly:12}[n.repeat]||1):1;
+  if(n.snoozeOf&&rep){if(t.getTime()>now)out.push({k:'n:'+n.id+':'+n.remind,at:t,title:'⏰ '+(n.title||'تذكير'),body:n.body||'',ch:'alarms',ex:{kind:'note',id:n.id}});t=stepRep(new Date(n.snoozeOf),n.repeat)}
+  for(let k=0,g=0;k<cnt&&g<400;g++){if(t.getTime()>now){out.push({k:'n:'+n.id+':'+toLocalDT(t),at:new Date(t),title:'⏰ '+(n.title||'تذكير'),body:n.body||'',ch:'alarms',ex:{kind:'note',id:n.id}});k++}if(!rep)break;t=stepRep(t,n.repeat)}}
+ const due=(k,ds,title,body,go)=>{if(!ds)return;const t=at10(ds);if(t.getTime()>now)out.push({k,at:t,title,body,ch:'dues',ex:{kind:'go',go}})};
+ for(const d of S.debts){const rem=debtRem(d);if(rem<=0.001)continue;const ds=debtDue(d);if(!ds)continue;const ia=+d.instN>0,amt=ia?Math.min(rem,instAmt(d)*(instDone(d)+1)-debtPaid(d)):rem;
+  due('d:'+d.id+':'+ds,ds,d.dir==='in'?'💰 معاد تحصيل':'💸 معاد سداد',(d.dir==='in'?`من ${d.person}: `:`لـ ${d.person}: `)+fmt(amt)+(ia?` (قسط ${instDone(d)+1}/${d.instN})`:''),'debts')}
+ for(const x of activeSubs()){if(x.auto||!x.next)continue;const k=x.kind||'exp';due('s:'+x.id+':'+x.next,x.next,k==='inc'?'💰 '+x.name:k==='trf'?'⇄ تحويل '+x.name:'🔁 اشتراك '+x.name,k==='trf'?`${fmt(x.amount)} من ${accName(x.acc)} لـ ${accName(x.to)}`:fmt(x.amount)+(k==='inc'?' — استلمته؟':' — من '+accName(x.acc)),'subs')}
+ for(const g of S.gams){if(g.done)continue;const i=gamNextIdx(g);if(i>=0)due('g:'+g.id+':'+i,gamDate(g,i),'👥 قسط جمعية '+g.name,fmt(g.share)+` — شهر ${i+1}`,'gams');
+  if(!g.received&&+g.turn>0)due('gt:'+g.id,gamDate(g,+g.turn-1),'🎉 دورك تقبض '+g.name,fmt(gamPot(g)),'gams')}
+ return out.sort((a,b)=>a.at-b.at).slice(0,300)}
+let NSYNC_T=null,NSIG='';
+function nativeSyncSoon(){if(!NATIVE||!LN)return;clearTimeout(NSYNC_T);NSYNC_T=setTimeout(nativeSync,1200)}
+async function nativeSync(force){if(!NATIVE||!LN)return;const items=nativeItems(),sig=items.map(x=>x.k+'|'+x.title+'|'+x.body).join('\n');
+ if(!force&&sig===NSIG)return;
+ try{const p=await LN.getPending();const ids=(p.notifications||[]).map(n=>({id:n.id}));if(ids.length)await LN.cancel({notifications:ids});
+  if(items.length)for(let i=0;i<items.length;i+=50)await LN.schedule({notifications:items.slice(i,i+50).map(x=>({id:nid(x.k),title:x.title,body:x.body,largeBody:x.body,channelId:x.ch,
+   schedule:{at:x.at,allowWhileIdle:true},smallIcon:'ic_stat_notify',iconColor:'#1f6feb',autoCancel:true,actionTypeId:x.ch==='alarms'?'rem':undefined,extra:x.ex}))});
+  NSIG=sig;NST.pending=items.length;if(cur==='settings'&&!$('#modal').classList.contains('open'))render()}
+ catch(e){console.error(e);NSIG=''}}
+async function nativePerms(ask){if(!LN)return;try{let p=await LN.checkPermissions();if(ask&&p.display!=='granted')p=await LN.requestPermissions();NST.perm=p.display}catch(e){NST.perm='?'}
+ try{if(LN.checkExactNotificationSetting){const x=await LN.checkExactNotificationSetting();NST.exact=x.exact_alarm}}catch(e){}}
+function nativeAction(a){const ex=(a.notification&&a.notification.extra)||{};
+ if(ex.kind==='note'){const n=S.notes.find(x=>x.id===ex.id);if(!n)return;
+  if(a.actionId==='done'||a.actionId==='snooze'){noteAck(n,a.actionId==='snooze'?'snooze':'done',true);S.notified['n:'+n.id+':'+n.remind]=1;save();render();toast(a.actionId==='snooze'?'😴 هفكرك بعد 10 دقايق':'✓ تمام')}
+  else{go('notes')}}
+ else if(ex.kind==='go'&&V[ex.go])go(ex.go)}
+async function nativeTest(){if(!LN)return;await nativePerms(true);if(NST.perm!=='granted')return toast('لازم تسمح بالإشعارات الأول','warn');
+ await LN.schedule({notifications:[{id:nid('test:'+Date.now()),title:'⏰ تجربة المنبّه',body:'لو سمعت الصوت ده والتطبيق مقفول، يبقى المنبّهات شغالة 👌',channelId:'alarms',schedule:{at:new Date(Date.now()+10000),allowWhileIdle:true},smallIcon:'ic_stat_notify',iconColor:'#1f6feb'}]});
+ toast('⏱️ اقفل التطبيق دلوقتي — المنبّه هيرن بعد 10 ثواني')}
+async function nativeUpdateCheck(force){if(!NATIVE||!APP_BUILD)return;const last=+localStorage.getItem('hesabaty_updchk')||0;if(!force&&Date.now()-last<6*3600e3)return;
+ try{const r=await fetch('https://api.github.com/repos/seifeldinnasser24-source/hesabaty/releases/latest',{cache:'no-store'});if(!r.ok)return;const j=await r.json(),n=parseInt(String(j.tag_name||'').replace(/\D/g,''))||0;
+  localStorage.setItem('hesabaty_updchk',Date.now());NST.upd=n>APP_BUILD?n:0;
+  if(NST.upd){const b=$('#updBar');if(b){b.innerHTML=`🎁 فيه نسخة جديدة من التطبيق (${n}) <button class="sm p" data-act="getApk">نزّلها</button><button class="ic" data-act="updHide">✕</button>`;b.style.display='flex'}}
+  else if(force)toast('✓ عندك آخر نسخة')}catch(e){if(force)toast('مقدرتش أشيك — اتأكد من النت','warn')}}
+async function nativeSave(blob,name){const FS=PLG('Filesystem'),SH=PLG('Share');if(!FS||!SH)return toast('مقدرتش أحفظ الملف','bad');
+ try{const b64=await new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>res(String(fr.result).split(',')[1]);fr.onerror=rej;fr.readAsDataURL(blob)});
+  const w=await FS.writeFile({path:name,data:b64,directory:'CACHE'});await SH.share({title:name,files:[w.uri],dialogTitle:'احفظ الملف أو ابعته'})}
+ catch(e){if(!/cancel/i.test(String(e&&e.message||e)))toast('مقدرتش أحفظ الملف: '+(e&&e.message||e),'bad')}}
+async function nativeInit(){if(!NATIVE)return;document.documentElement.classList.add('native');
+ if(LN){try{await LN.createChannel({id:'alarms',name:'منبّهات التذكير',description:'تذكيرات النوت — بترن بصوت منبّه',importance:5,visibility:1,sound:'alarm.wav',vibration:true,lights:true,lightColor:'#F5A524'});
+   await LN.createChannel({id:'dues',name:'مواعيد الفلوس',description:'ديون واشتراكات وجمعيات',importance:4,visibility:1,vibration:true});
+   await LN.registerActionTypes({types:[{id:'rem',actions:[{id:'done',title:'✓ تمام'},{id:'snooze',title:'😴 بعد 10 دقايق'}]}]})}catch(e){console.error(e)}
+  try{LN.addListener('localNotificationActionPerformed',a=>{const f=()=>nativeAction(a);BOOT_WAIT?setTimeout(f,800):f()})}catch(e){}
+  await nativePerms(true);nativeSync(true)}
+ const AP=PLG('App');if(AP){try{
+  AP.addListener('backButton',()=>{if(locked){AP.minimizeApp&&AP.minimizeApp();return}if($('#alarm').classList.contains('open'))return;
+   if($('#modal').classList.contains('open')){closeM();return}if($('#fab').classList.contains('open')){ACT.fab();return}if(cur!=='home'){go('home');return}AP.minimizeApp?AP.minimizeApp():AP.exitApp()});
+  AP.addListener('appStateChange',st=>{if(st.isActive){autoSubs();checkNotify();nextAlarmCheck();nativePerms(false);nativeSyncSoon();nativeUpdateCheck()}})}catch(e){}}
+ setTimeout(()=>nativeUpdateCheck(),3000)}
+function nativeCard(){const ok=NST.perm==='granted',ex=NST.exact;
+ return`<section class="card"><h3>⏰ منبّهات الموبايل</h3>
+ <div style="font-size:14px;line-height:1.9">الإشعارات: ${ok?'<span class="ok">مسموحة ✓</span>':`<span class="bad">مش مسموحة</span> <button class="sm p" data-act="nPerm">اسمح</button>`}<br>
+ المنبّهات في معادها بالظبط: ${ex==='denied'?'<span class="bad">مقفولة</span> <button class="sm p" data-act="nExact">افتحها</button>':'<span class="ok">✓</span>'}<br>
+ منبّهات متجدولة: <b>${NST.pending==null?'…':NST.pending}</b></div>
+ <label class="chk" style="margin-top:6px"><input type="checkbox" id="sSnd" ${S.settings.alarmSound?'checked':''}> صوت منبّه جوه التطبيق لما يكون مفتوح</label>
+ <div class="mut" style="font-size:12.5px;margin:4px 0 10px">💡 لو الموبايل Realme / Oppo / Xiaomi / Samsung: ادخل إعدادات الموبايل ← التطبيقات ← حساباتي ← البطارية، واختار <b>"بدون قيود"</b> وفعّل <b>"التشغيل التلقائي"</b>، عشان النظام مايوقفش المنبّهات.</div>
+ <div class="acts"><button class="p" data-act="nTest">🔔 جرّب: منبّه بعد 10 ثواني</button><button data-act="nResync">🔄 أعد الجدولة</button><button data-act="nUpd">⬆️ دوّر على تحديث</button></div>
+ <div class="mut" style="font-size:12px;margin-top:8px">نسخة التطبيق: ${APP_BUILD||'تجريبية'}</div></section>`}
+
 /* ================= التطبيق (PWA) والمشاركة ================= */
 const IS_HTTP=/^https?:$/.test(location.protocol),IS_STANDALONE=()=>{try{return matchMedia('(display-mode: standalone)').matches||navigator.standalone===true}catch(e){return false}};
 const IS_IOS=/iphone|ipad|ipod/i.test(navigator.userAgent||'');let INSTALL=null;
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();INSTALL=e;if(cur==='settings')render()});
-function pwaBoot(){if(!IS_HTTP)return;
+function pwaBoot(){if(!IS_HTTP||NATIVE)return;
  if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{})}
 function canShareFiles(){try{return!!(navigator.canShare&&navigator.canShare({files:[new File(['x'],'x.json',{type:'application/json'})]}))}catch(e){return false}}
-function appCard(){if(IS_STANDALONE())return'<div class="ok" style="font-size:14px">✓ شغال كتطبيق متثبت على الجهاز ده.</div>';
+function appCard(){if(NATIVE)return`<div class="ok" style="font-size:14px">✓ شغال كتطبيق أندرويد (نسخة ${APP_BUILD||'تجريبية'})</div>`;if(IS_STANDALONE())return'<div class="ok" style="font-size:14px">✓ شغال كتطبيق متثبت على الجهاز ده.</div>';
  if(!IS_HTTP)return`<div class="mut" style="font-size:13.5px">انت فاتح السيستم كملف. عشان تثبّته كتطبيق على الموبايل بأيقونة ويشتغل من غير نت، ارفعه على رابط ثابت (موجود شرح الرفع مع الملفات). بعدها افتح الرابط وهيظهرلك زرار التثبيت هنا.</div>`;
  if(INSTALL)return'<button class="p" data-act="install">📲 ثبّت حساباتي على الشاشة الرئيسية</button>';
  if(IS_IOS)return'<div style="font-size:14px">على الآيفون: افتح الصفحة من <b>Safari</b> ← اضغط زرار المشاركة <b>⬆️</b> ← <b>"إضافة إلى الشاشة الرئيسية"</b>.</div>';
@@ -1335,7 +1411,10 @@ const ACT={
  delDebt:id=>{if(confirm('تحذف الدين ده وكل دفعاته؟')){S.debts=S.debts.filter(d=>d.id!==id);S.txs=S.txs.filter(t=>t.debtId!==id);save();render()}},
  delPay:v=>{const[did,pid]=v.split('|'),d=S.debts.find(x=>x.id===did);if(!d||!confirm('تحذف الدفعة دي؟'))return;d.payments=d.payments.filter(p=>p.id!==pid);S.txs=S.txs.filter(t=>t.payId!==pid);save();render();histDebt(did)},
  dTab:k=>{DF.tab=k;render()},
- more:moreMenu,confKeep,qSave:()=>quickSave($('#qIn').value),quick:quickModal,saveRates:()=>{$$('[data-rate]').forEach(i=>{const v=+i.value;if(v>0)S.rates[i.dataset.rate]=v});save();render();toast('✓ اتحفظت الأسعار')},
+ more:moreMenu,confKeep,
+ getApk:()=>openExt(APK_URL),updHide:()=>{$('#updBar').style.display='none'},
+ nPerm:async()=>{await nativePerms(true);nativeSync(true);render()},nExact:async()=>{try{await LN.changeExactNotificationSetting()}catch(e){}setTimeout(async()=>{await nativePerms(false);render()},1500)},
+ nTest:()=>nativeTest(),nResync:async()=>{await nativeSync(true);toast('✓ اتجدولت '+(NST.pending||0)+' منبّه')},nUpd:()=>nativeUpdateCheck(true),qSave:()=>quickSave($('#qIn').value),quick:quickModal,saveRates:()=>{$$('[data-rate]').forEach(i=>{const v=+i.value;if(v>0)S.rates[i.dataset.rate]=v});save();render();toast('✓ اتحفظت الأسعار')},
  waDebt:id=>{const d=S.debts.find(x=>x.id===id);if(d)waOpen(d.person,debtMsg(d))},stmt:p=>stmtModal(p),
  stmtWa:p=>{const ph=$('#stPh');if(ph&&ph.value.trim()){setPhone(p,ph.value);save()}waOpen(p,stmtText(p))},
  stmtCopy:p=>{const t=stmtText(p);(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>toast('📋 اتنسخ')).catch(()=>{const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();try{document.execCommand('copy');toast('📋 اتنسخ')}catch(e){}ta.remove()})},
@@ -1378,7 +1457,7 @@ const ACT={
  pinNote:id=>{const n=S.notes.find(x=>x.id===id);n.pinned=!n.pinned;save();render()},
  noteGcal,alStop:()=>alarmAct('done'),alSnooze:()=>alarmAct('snooze'),
  testAlarm:()=>{audioUnlock();const n={id:'__test',title:'تجربة المنبّه',body:'لو سامع الصوت يبقى كله تمام 👌',remind:toLocalDT(new Date())};alarmStart(n);devNotify('تجربة المنبّه — لو شايف الإشعار ده يبقى شغال','test',true)},
- doneNote:id=>{const n=S.notes.find(x=>x.id===id);if(n.done)n.done=false;else if(n.remind&&n.repeat&&n.repeat!=='none'){n.remind=advance(n.remind,n.repeat);toast('⏰ التذكير الجاي: '+fmtDT(n.remind))}else n.done=true;save();render()},
+ doneNote:id=>{const n=S.notes.find(x=>x.id===id);if(n.done){n.done=false;save();render()}else if(n.remind)noteAck(n,'done');else{n.done=true;save();render()}},
  perm:()=>{audioUnlock();if(typeof Notification==='undefined')return toast('المتصفح ده مش بيدعم الإشعارات','warn');Notification.requestPermission().then(p=>{toast(p==='granted'?'✓ الإشعارات اتفعلت':'الإشعارات متفعلتش',p==='granted'?'':'warn');render()})},
  tool:k=>{BV.tool=k;BV.linkFrom=null;$$('.btool .tool').forEach(b=>b.classList.toggle('on',b.dataset.id===k));renderWorld()},
  pal:i=>{BV.color=+i;$$('.pal button').forEach(b=>b.classList.toggle('on',b.dataset.id===i));const b=curBoard(),s=BV.sel;if(s&&s.t==='node'){nodeById(b,s.id).c=+i;save()}else if(s&&s.t==='stroke'){const st=b.strokes.find(x=>x.id===s.id);if(st){st.c=PAL[+i][1];save()}}renderWorld()},
@@ -1390,7 +1469,7 @@ const ACT={
  nDup:()=>{const b=curBoard(),n=selNode();if(!n)return;const c={...n,id:uid(),x:n.x+30,y:n.y+30};b.nodes.push(c);BV.sel={t:'node',id:c.id};save();renderWorld()},
  eEdit:()=>{if(BV.sel)edgeForm(BV.sel.id)},eRev:()=>{const e=curBoard().edges.find(x=>x.id===BV.sel.id);if(e){[e.from,e.to]=[e.to,e.from];save();renderWorld()}},
  eDash:()=>{const e=curBoard().edges.find(x=>x.id===BV.sel.id);if(e){e.dash=!e.dash;save();renderWorld()}},selDel:delSel,
- saveSet:()=>{S.settings.cur=$('#sCur').value.trim()||'ج.م';S.settings.debtDays=Math.max(0,+$('#sDays').value||0);S.settings.notify=$('#sNot').checked;S.settings.alarmSound=$('#sSnd').checked;save();toast('✓ اتحفظ');render()},
+ saveSet:()=>{S.settings.cur=$('#sCur').value.trim()||'ج.م';S.settings.debtDays=Math.max(0,+$('#sDays').value||0);if($('#sNot'))S.settings.notify=$('#sNot').checked;if($('#sSnd'))S.settings.alarmSound=$('#sSnd').checked;save();toast('✓ اتحفظ');render()},
  saveCats:()=>{const p=s=>[...new Set($(s).value.split('\n').map(x=>x.trim()).filter(Boolean))];const e=p('#sExp'),i=p('#sInc');if(!e.length||!i.length)return toast('لازم بند واحد على الأقل','warn');S.cats.exp=e;S.cats.inc=i;for(const c in S.budgets)if(!e.includes(c))delete S.budgets[c];save();toast('✓ اتحفظ');render()},
  saveBud:()=>{const nb={};$$('[data-bud]').forEach(el=>{const v=+el.value;if(v>0)nb[S.cats.exp[+el.dataset.bud]]=v});S.budgets=nb;save();toast('✓ اتحفظت الميزانية');render()},
  shareBk:async()=>{const f=new File([JSON.stringify(S)],'حساباتي-نسخة-'+today()+'.json',{type:'application/json'});
@@ -1416,7 +1495,7 @@ function lockUI(){$('#lockBtn').style.display=S.settings.pin?'':'none'}
 function startApp(){S.accounts.forEach(a=>{if(!ACCT[a.type])a.type='cash'});
  lastJ=JSON.stringify(S);
  autoSubs();render();save({noUndo:true});UNDO=[];undoBtn();lockUI();if(S.settings.pin)lock();askPersist().then(()=>{if(cur==='settings')render()});
- fileInit().then(()=>{fileBadge();if(cur==='settings')render()})}
+ fileInit().then(()=>{fileBadge();if(cur==='settings')render()});nativeInit()}
 if(BOOT_WAIT){$('#view').innerHTML='<div class="empty">⏳ جاري التحميل...</div>';
  (async()=>{let j=null;try{j=await idbGetK('data');const sn=await idbGetK('snaps');SNAPS=sn?JSON.parse(sn):[]}catch(e){}
   BOOT_WAIT=false;if(j){S=normalize(JSON.parse(j))}else toast('مقدرتش أقرا البيانات — استرجع نسخة احتياطية من الإعدادات','bad');startApp()})()}
